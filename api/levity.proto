@@ -1,0 +1,91 @@
+syntax = "proto3";
+package levity;
+
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/tcsc/levity/api";
+
+
+service TaskManager {
+    // StartTask attempts to launch a task on the server, returning a handle
+    // to interact with the task via the other API end points. he launched
+    // process will run under, and inherit the permissions of, the account 
+    // of the user running the API server. No shell variable substitution
+    // will be performed.
+    rpc StartTask(StartTaskRequest) returns (StartTaskResponse) {}
+
+    // QueryTask fetches the current state of the task, e.g. Running, 
+    // Finished, etc.
+    rpc QueryTask(QueryTaskRequest) returns (QueryTaskResponse) {}
+
+    // SignalTasks requests that the task exit. The process will be given a
+    // SIGTERM, and if the process does not exit after an arbitrary timeout it
+    // will be killed. Note that this call will NOT wait on the task to
+    // finish; the caller will need to poll with QueryTask to determine when
+    // the task has finished.
+    rpc SignalTask(SignalTaskRequest) returns (google.protobuf.Empty) {}
+
+    // FetchLogs returns the data written to stdout and stderr by the task. The
+    // log data from each stream is treated as an opaque series of bytes
+    rpc FetchLogs(FetchLogsRequest) returns (FetchLogsResponse) {}
+
+    // Obvious extension is streaming the logs as they come in
+    // using gRPC streaming.
+}
+
+// TaskHandle stores an idetifier that uniquely identifies a task while it is
+// registered with the API server. IDs may be recycled during the lifetime of
+// the server process.
+message TaskHandle {
+    string id = 1;
+}
+
+message StartTaskRequest {
+    string binary = 1;
+    repeated string args = 2;
+    optional string working_dir = 3;
+    map<string,string> environment = 4;
+}
+
+message StartTaskResponse {
+    TaskHandle task_id = 1;
+}
+
+message QueryTaskRequest {
+    TaskHandle task_id = 1;
+}
+
+enum TaskStatusCode {
+    // The task is running
+    Running = 0;
+
+    // Quit requested, but not yet exited
+    Signalled = 1;
+
+    // Task exited naturally, either of its own volition or after being killed.
+    Finished = 2; 
+
+    // The did not respond to the term signal and brutally killed. Implies that 
+    // there is no exit code to return 
+    BrutallyKilled = 3;
+}
+
+message QueryTaskResponse {
+    TaskStatusCode status_code = 1;
+
+    // The exit code of the process. Only valid if the status is `Finished` 
+    optional int32 exit_code = 2;
+}
+
+message SignalTaskRequest {
+    TaskHandle task_id = 1;
+}
+
+message FetchLogsRequest {
+    TaskHandle task_id = 1;
+}
+
+message FetchLogsResponse {
+    bytes stdout = 1;
+    bytes stderr = 2;
+}
