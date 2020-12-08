@@ -87,7 +87,7 @@ This system will use a self-generated CA root certificate for testing purposes.
 
 Ideally, both the client and server will have a configuration option to trust an arbitrary CA in order to run automated tests. Note that this specified CA *may* be hardcoded into the client and server binaries, depending on the time available for implementation. This is obviously something that would not be allowed in a production system.
 
-Time permitting, the project makefile will provide a target to generate both the CD root certificates and derived client & server certificates from scratch.
+Time permitting, the project makefile will provide a target to generate both the CA root certificates and derived client & server certificates from scratch.
 
 ## Implementation Details
 

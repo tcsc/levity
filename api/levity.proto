@@ -56,18 +56,26 @@ message QueryTaskRequest {
 }
 
 enum TaskStatusCode {
+    // The task is not yet started
+    NotStarted = 0;
+
     // The task is running
-    Running = 0;
+    Running = 1;
 
     // Quit requested, but not yet exited
-    Signalled = 1;
+    Signalled = 2;
 
-    // Task exited naturally, either of its own volition or after being killed.
-    Finished = 2; 
+    // Task exited naturally, either of its own volition or after being signalled.
+    Finished = 3; 
 
-    // The did not respond to the term signal and brutally killed. Implies that 
+    // Task did not respond to the term signal and was brutally killed. Implies that 
     // there is no exit code to return 
-    BrutallyKilled = 3;
+    BrutallyKilled = 4;
+
+    // Task encountered some sort of error during its execution. This is the result
+    // of a failure in the system that surronds the task, not the task itself. Implies
+    // that there is no exit code to return 
+    InternalServerError = 5;
 }
 
 message QueryTaskResponse {
