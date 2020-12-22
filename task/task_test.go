@@ -125,7 +125,9 @@ func TestNonZeroExitCode(t *testing.T) {
 	require.NoError(uut.Start())
 	require.NoError(await(uut, 1*time.Second))
 
-	assert.Equal(2, uut.exitCode)
+	state, exitCode := uut.Status()
+	assert.Equal(exitCode, 2)
+	assert.Equal(state, api.TaskStatusCode_Finished)
 }
 
 // sliceContains is a test helper function to check if a byte slice contains

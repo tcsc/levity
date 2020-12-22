@@ -208,11 +208,10 @@ func (t *Task) monitor() error {
 	// Wait for the underying process to complete before we try and force all
 	// of the IO streams to be flushed and closed, otherwise we have a data
 	// race on the Cmd that we wrap.
-
 	var exitCode int
 	switch err := t.cmd.Wait().(type) {
 	case nil:
-		exitCode = 0
+		exitCode = t.cmd.ProcessState.ExitCode()
 
 	case *exec.ExitError:
 		// For our purposes, this counts as a clean exit
@@ -250,4 +249,12 @@ func (t *Task) ExitCode() int {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 	return t.exitCode
+}
+
+// Status fetches the tasks status and exit code (if any). -1 indicated that
+// no exit code is available yet.
+func (t *Task) Status() (api.TaskStatusCode, int) {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+	return t.statusCode, t.exitCode
 }

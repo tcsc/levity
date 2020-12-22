@@ -4,8 +4,8 @@ export GOBIN=$(shell pwd)/bin
 export PATH := $(GOBIN):$(PATH)
 GRPC_GO_GEN=$(GOBIN)/protoc-gen-go
 
-TEST_PACKAGES=$(shell go list ./... | grep -v test_cmd)
-TEST_COMMANDS=$(shell go list ./... | grep test_cmd)
+TEST_PACKAGES=$(shell go list ./... | grep -v cmd_test)
+TEST_COMMANDS=$(shell go list ./... | grep cmd_test)
 
 deps:
 	go mod download
@@ -33,3 +33,4 @@ tests-race: test-binaries
 
 clean:
 	rm -f $(GOBIN)/*
+	go clean ./...

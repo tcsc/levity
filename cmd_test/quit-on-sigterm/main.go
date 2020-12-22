@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -13,4 +14,5 @@ func main() {
 	fmt.Println("Ready. Waiting for SIGTERM...")
 	<-signals
 	fmt.Println("Caught SIGTERM, exiting")
+	<-time.After(500 * time.Millisecond)
 }
