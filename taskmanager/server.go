@@ -8,6 +8,7 @@ import (
 	"github.com/tcsc/levity/api"
 	"github.com/tcsc/levity/registry"
 	"github.com/tcsc/levity/task"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type NoSuchTask struct {
@@ -81,7 +82,7 @@ func (server *Server) QueryTask(
 
 	var exitCode *int32
 	status, taskExitCode := task.Status()
-	if taskExitCode != -1 {
+	if status == api.TaskStatusCode_Finished {
 		exitCode = new(int32)
 		(*exitCode) = int32(taskExitCode)
 	}
@@ -94,13 +95,13 @@ func (server *Server) QueryTask(
 	return response, nil
 }
 
-// Signal requests that a task should be stopped
-func (server *Server) Signal(
-	ctx context.Context, req *api.SignalTaskRequest) error {
+// SignalTask requests that a task should be stopped
+func (server *Server) SignalTask(
+	ctx context.Context, req *api.SignalTaskRequest) (*emptypb.Empty, error) {
 
 	task := server.registry.Lookup(req.TaskId.Id)
 	if task == nil {
-		return &NoSuchTask{id: req.TaskId.Id}
+		return nil, &NoSuchTask{id: req.TaskId.Id}
 	}
 
 	// Note the hardcoded 5s timeout here; this should at the very least be
@@ -115,7 +116,13 @@ func (server *Server) Signal(
 		<-task.Done()
 		cancel()
 	}()
-	return task.Signal(signalCtx)
+
+	err := task.Signal(signalCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &emptypb.Empty{}, nil
 }
 
 func killTask(t *task.Task) {

@@ -129,8 +129,8 @@ func TestQueryTask_NonSignalled(t *testing.T) {
 		startTask("exit-with-two"))
 	require.NoError(err)
 	taskID := startResponse.TaskId
-	task := uut.registry.Lookup(taskID.Id)
-	defer killTask(task)
+	runningTask := uut.registry.Lookup(taskID.Id)
+	defer killTask(runningTask)
 
 	// When I query the task status
 	status, err := uut.QueryTask(ctx, &api.QueryTaskRequest{TaskId: taskID})
@@ -142,7 +142,7 @@ func TestQueryTask_NonSignalled(t *testing.T) {
 	require.Nil(status.ExitCode)
 
 	// When I signal the task
-	err = uut.Signal(ctx, &api.SignalTaskRequest{TaskId: taskID})
+	_, err = uut.SignalTask(ctx, &api.SignalTaskRequest{TaskId: taskID})
 	require.NoError(err)
 
 	// ... expect that the task should have moved to the "signalled" state
@@ -152,14 +152,14 @@ func TestQueryTask_NonSignalled(t *testing.T) {
 	require.Nil(status.ExitCode)
 
 	// And, finally, when I wait for the task to exit
-	require.NoError(await(task, 2*time.Second))
+	require.NoError(await(runningTask, 2*time.Second))
 
-	// ... expect that the status has moved to "finished" (the exit code will
-	// still be nil due to the task being killed via signal)
+	// ... expect that the status has moved to "finished", with an exit
+	// code of -1.
 	status, err = uut.QueryTask(ctx, &api.QueryTaskRequest{TaskId: taskID})
 	require.NoError(err)
 	require.Equal(status.StatusCode, api.TaskStatusCode_Finished)
-	require.Nil(status.ExitCode)
+	require.Equal(*status.ExitCode, task.InvalidExitCode)
 }
 
 func TestFetchOutput(t *testing.T) {
@@ -237,7 +237,7 @@ func TestSignal(t *testing.T) {
 	task := uut.registry.Lookup(taskID.Id)
 
 	// When I signal the task to quit
-	err = uut.Signal(ctx, &api.SignalTaskRequest{TaskId: taskID})
+	_, err = uut.SignalTask(ctx, &api.SignalTaskRequest{TaskId: taskID})
 
 	// expect the request to succeed
 	require.NoError(err)
@@ -254,7 +254,7 @@ func TestSignal_NonExistantTask(t *testing.T) {
 	uut := New()
 
 	// When I signal the task to quit
-	err := uut.Signal(ctx, &api.SignalTaskRequest{
+	_, err := uut.SignalTask(ctx, &api.SignalTaskRequest{
 		TaskId: &api.TaskHandle{Id: "none-such"}})
 
 	// expect the request to fail with the no such task error
@@ -279,7 +279,7 @@ func TestSignal_AlreadyFinishedTask(t *testing.T) {
 	require.NoError(await(task, 1*time.Second))
 
 	// When I signal the task to quit
-	err = uut.Signal(ctx, &api.SignalTaskRequest{TaskId: taskID})
+	_, err = uut.SignalTask(ctx, &api.SignalTaskRequest{TaskId: taskID})
 
 	// expect the request to succeed
 	require.NoError(err)
@@ -308,7 +308,7 @@ func TestSignal_AlreadySignalledTask(t *testing.T) {
 	}
 
 	// When I signal the task and wait for it to show up in the stdout
-	err = uut.Signal(ctx, &api.SignalTaskRequest{TaskId: taskID})
+	_, err = uut.SignalTask(ctx, &api.SignalTaskRequest{TaskId: taskID})
 	require.NoError(err)
 	stdout := ""
 	t0 := time.Now()
@@ -321,7 +321,7 @@ func TestSignal_AlreadySignalledTask(t *testing.T) {
 	}
 
 	// ... and then signal it again
-	err = uut.Signal(ctx, &api.SignalTaskRequest{TaskId: taskID})
+	_, err = uut.SignalTask(ctx, &api.SignalTaskRequest{TaskId: taskID})
 
 	// expect the request to succeed
 	require.NoError(err)

@@ -15,6 +15,8 @@ import (
 	"github.com/tcsc/levity/api"
 )
 
+const InvalidExitCode int32 = -1
+
 // ErrInvalidState indicates that an operation was attempted on a task
 // in a state not prepared for it
 var ErrInvalidState = errors.New("task in invalid state for operation")
@@ -58,7 +60,7 @@ func New(binary string, workingDir string, env map[string]string, args ...string
 		cmd:        cmd,
 		statusCode: api.TaskStatusCode_NotStarted,
 		done:       make(chan struct{}),
-		exitCode:   -1,
+		exitCode:   int(InvalidExitCode),
 	}
 	t.cmd.Stdout = &streamReader{lock: &t.lock, dst: &t.stdout}
 	t.cmd.Stderr = &streamReader{lock: &t.lock, dst: &t.stderr}
