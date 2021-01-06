@@ -81,7 +81,7 @@ $ levity -a example.com:4321 signal f257cd86-8ec6-4688-b902-2a118e0a3035
 ```
 
 This will issue a soft request for the task to quit by signalling the underlying 
-process with a SIGTERM. The server ives the task a 5-second grace period to clean
+process with a SIGTERM. The server gives the task a 5-second grace period to clean
 up any resources it might have and exit. If the process has _not_ exited after 5
 seconds, the server will kill it with a SIGKILL.
 
