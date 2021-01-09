@@ -10,6 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tcsc/levity/api"
+	"github.com/tcsc/levity/user"
+)
+
+var (
+	alice = user.New("alice")
 )
 
 func TestFormatEnv(t *testing.T) {
@@ -44,7 +49,7 @@ func TestFormatEnvHandlesEmptyEnv(t *testing.T) {
 func TestNonExistentBinaryIsAnError(t *testing.T) {
 	assert := assert.New(t)
 
-	uut := New("no-such-binary", "", nil)
+	uut := New(alice, "no-such-binary", "", nil)
 	assert.Error(uut.Start())
 }
 
@@ -64,6 +69,7 @@ func TestCaptureStdout(t *testing.T) {
 
 	// Given a task that produces data on stdout
 	uut := New(
+		alice,
 		"echo",
 		"",
 		map[string]string{},
@@ -93,6 +99,7 @@ func TestCaptureStderr(t *testing.T) {
 
 	// Given a task that prints some text to stderr
 	uut := New(
+		alice,
 		"bash",
 		"",
 		map[string]string{},
@@ -118,6 +125,7 @@ func TestNonZeroExitCode(t *testing.T) {
 	// Given a task that we know will *NOT* respond to a SIGTERM
 	// nicely, that is definitely up and running
 	uut := New(
+		alice,
 		"exit-with-two",
 		"",
 		map[string]string{},
@@ -188,6 +196,7 @@ func TestSignal(t *testing.T) {
 	// Given a task that we know will only exit when given a
 	// SIGTERM that is up and running
 	uut := New(
+		alice,
 		"quit-on-sigterm",
 		"",
 		map[string]string{},
@@ -223,6 +232,7 @@ func TestSignalTimeout(t *testing.T) {
 	// Given a task that we know will *NOT* respond to a SIGTERM
 	// nicely, that is definitely up and running
 	uut := New(
+		alice,
 		"ignore-signal",
 		"",
 		map[string]string{},
@@ -256,6 +266,7 @@ func TestEnvironment(t *testing.T) {
 
 	// Given a running task with a configured environment
 	uut := New(
+		alice,
 		"sh",
 		"",
 		map[string]string{"FOO": "BAR"},
@@ -279,6 +290,7 @@ func TestWorkingDir(t *testing.T) {
 
 	// Given a running pwd in the root directory
 	uut := New(
+		alice,
 		"pwd",
 		"/",
 		map[string]string{"FOO": "BAR"},

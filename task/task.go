@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/tcsc/levity/api"
+	"github.com/tcsc/levity/user"
 )
 
 const InvalidExitCode int32 = -1
@@ -38,6 +39,7 @@ func (r *streamReader) Write(b []byte) (n int, err error) {
 // Task represents a task that has been invoked by the API server.
 type Task struct {
 	lock       sync.RWMutex
+	owner      *user.User
 	cmd        *exec.Cmd
 	stdout     bytes.Buffer
 	stderr     bytes.Buffer
@@ -47,7 +49,7 @@ type Task struct {
 }
 
 // New creates (but does not start) new task
-func New(binary string, workingDir string, env map[string]string, args ...string) *Task {
+func New(owner *user.User, binary string, workingDir string, env map[string]string, args ...string) *Task {
 	// Construct the underlying command which will do the heavy lifting of executing
 	// the subcommand.
 	cmd := exec.Command(binary, args...)
@@ -57,6 +59,7 @@ func New(binary string, workingDir string, env map[string]string, args ...string
 	// wrap it in a Task to provide locking, and bind the output streams to readers
 	// that will capture the stream data and write it to the given buffers
 	t := Task{
+		owner:      owner,
 		cmd:        cmd,
 		statusCode: api.TaskStatusCode_NotStarted,
 		done:       make(chan struct{}),
@@ -66,6 +69,11 @@ func New(binary string, workingDir string, env map[string]string, args ...string
 	t.cmd.Stderr = &streamReader{lock: &t.lock, dst: &t.stderr}
 
 	return &t
+}
+
+// Owner fetches a reference to the task's owner.
+func (t *Task) Owner() *user.User {
+	return t.owner
 }
 
 // Start starts the task running

@@ -15,7 +15,10 @@ import (
 )
 
 const (
-	argAddress = "address"
+	argAddress        = "address"
+	argClientCert     = "certificate"
+	argClientKey      = "key"
+	argUseObsoleteTLS = "use-obsolete-tls"
 )
 
 var (
@@ -25,10 +28,12 @@ var (
 		Long:  "Levity is a remote task runner",
 	}
 
-	serverAddress   string
-	timeout         time.Duration = 5 * time.Second
-	caCertPath      string
-	connectInsecure bool
+	serverAddress  string
+	timeout        time.Duration = 5 * time.Second
+	caCertPath     string
+	idPrivateKey   string
+	idUserCert     string
+	useObsoleteTLS bool
 )
 
 func init() {
@@ -40,13 +45,27 @@ func init() {
 	flags.DurationVarP(&timeout, "timeout", "t", timeout,
 		"Timeout for GRPC requests")
 
-	flags.StringVar(&caCertPath, "ca", "", "Override CA file")
-	flags.BoolVar(&connectInsecure, "insecure", false,
-		"Connect insecurely to the server (i.e. no TLS)")
+	flags.StringVar(&caCertPath, "ca", "", "Override system CA with provided CA")
 
-	if err := rootCmd.MarkPersistentFlagRequired(argAddress); err != nil {
+	flags.StringVarP(&idPrivateKey, argClientKey, "k", "",
+		"Path to TLS identity private key")
+
+	flags.StringVarP(&idUserCert, argClientCert, "c", "",
+		"Path to TLS identity certificate")
+
+	for _, arg := range []string{argAddress, argClientCert, argClientKey} {
+		if err := rootCmd.MarkPersistentFlagRequired(arg); err != nil {
+			panic(err)
+		}
+	}
+
+	// Useful for testing, but should not be advertised to the user
+	flags.BoolVar(&useObsoleteTLS, argUseObsoleteTLS, false,
+		"Force use of TLS < 1.3 for testing")
+	if err := flags.MarkHidden(argUseObsoleteTLS); err != nil {
 		panic(err)
 	}
+
 	rootCmd.AddCommand(&cmdStart, &cmdFetchLogs, &cmdQuery, &cmdSignal)
 }
 
@@ -57,12 +76,13 @@ func main() {
 }
 
 func makeCredentials() (grpc.DialOption, error) {
-	if connectInsecure {
-		return grpc.WithInsecure(), nil
+	idCert, err := tls.LoadX509KeyPair(idUserCert, idPrivateKey)
+	if err != nil {
+		return nil, err
 	}
 
-	config := &tls.Config{
-		InsecureSkipVerify: false,
+	tlsCfg := &tls.Config{
+		Certificates: []tls.Certificate{idCert},
 	}
 
 	if caCertPath != "" {
@@ -76,10 +96,14 @@ func makeCredentials() (grpc.DialOption, error) {
 			return nil, errors.New("Failed to append certificate")
 		}
 
-		config.RootCAs = certPool
+		tlsCfg.RootCAs = certPool
 	}
 
-	creds := grpc.WithTransportCredentials(credentials.NewTLS(config))
+	if useObsoleteTLS {
+		tlsCfg.MaxVersion = tls.VersionTLS12
+	}
+
+	creds := grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg))
 	return creds, nil
 }
 
@@ -89,7 +113,9 @@ func makeClient() (*grpc.ClientConn, api.TaskManagerClient, error) {
 		return nil, nil, err
 	}
 
-	conn, err := grpc.Dial(serverAddress, creds)
+	conn, err := grpc.Dial(
+		serverAddress,
+		creds)
 	if err != nil {
 		return nil, nil, err
 	}

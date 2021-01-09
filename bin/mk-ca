@@ -1,0 +1,46 @@
+#!/bin/bash
+
+usage () {
+    echo "mk-ca --output <dst dir> --pfx <prefix> --ou <unit> --common-name <name> --openssl <path to openssl>"
+    exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+key="$1"
+
+OPENSSL=/usr/bin/openssl
+
+case $key in
+    -o|--output)
+        OUTPUT="$2"
+        shift
+    ;;
+    --ou)
+        CA_OU="$2"
+        shift
+    ;;
+    -n|--cn)
+        CA_CN="$2"
+        shift
+    ;;
+    -p|--pfx)
+        PREFIX="$2"
+        shift
+    ;;
+    --openssl)
+        OPENSSL="$2"
+        shift
+    ;;
+    *)    # unknown option
+    echo "Unknown option $1"
+    usage
+    ;;
+esac
+shift
+done
+
+CA_KEY="$OUTPUT/$PREFIX-ca-key.pem"
+CA_CERT="$OUTPUT/$PREFIX-ca-cert.pem"
+
+$OPENSSL genpkey -algorithm ed25519 -outform PEM -out "$CA_KEY"
+$OPENSSL req -x509 -newkey rsa:4096 -days 365 -nodes -key "$CA_KEY" -out "$CA_CERT" -subj "/C=na/ST=na/L=na/OU=$CA_OU/CN=$CA_CN"

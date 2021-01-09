@@ -23,6 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tcsc/levity/api"
 	"github.com/tcsc/levity/task"
+	"github.com/tcsc/levity/user"
+)
+
+var (
+	alice = user.New("alice")
+	bob   = user.New("bob")
 )
 
 func await(t *task.Task, timeout time.Duration) error {
@@ -44,7 +50,7 @@ func startTask(binary string, args ...string) *api.StartTaskRequest {
 	}
 }
 
-func TestStartTask_Success(t *testing.T) {
+func Test_StartTask_Success(t *testing.T) {
 	require := require.New(t)
 	tempDir := t.TempDir()
 	target := path.Join(tempDir, "target")
@@ -54,7 +60,8 @@ func TestStartTask_Success(t *testing.T) {
 
 	// When I issue a request to start a task...
 	request := startTask("touch", target)
-	response, err := uut.StartTask(context.Background(), request)
+	userCtx := user.NewContext(context.Background(), alice)
+	response, err := uut.StartTask(userCtx, request)
 
 	// Expect that the request succeeds and that the reponse contains an
 	// ID that can be used to reference the task
@@ -70,7 +77,7 @@ func TestStartTask_Success(t *testing.T) {
 	require.NoErrorf(err, "target file %s must exist", target)
 }
 
-func TestStartTask_CommandFailure(t *testing.T) {
+func Test_StartTask_CommandFailure(t *testing.T) {
 	require := require.New(t)
 
 	// Given a TaskManager instance
@@ -81,7 +88,7 @@ func TestStartTask_CommandFailure(t *testing.T) {
 
 	// When I issue a request to start a task targeting a binary
 	// that doesn't exist...
-	ctx := context.Background()
+	ctx := user.NewContext(context.Background(), alice)
 	request := startTask("/no-such-binary")
 	response, err := uut.StartTask(ctx, request)
 
@@ -93,9 +100,9 @@ func TestStartTask_CommandFailure(t *testing.T) {
 	require.Equal(0, uut.registry.Len())
 }
 
-func TestQueryTask_Signalled(t *testing.T) {
+func Test_QueryTask_Signalled(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	ctx := user.NewContext(context.Background(), alice)
 
 	// Given a task manager with a finished task
 	uut := New()
@@ -118,9 +125,9 @@ func TestQueryTask_Signalled(t *testing.T) {
 	require.Equal(*status.ExitCode, int32(2))
 }
 
-func TestQueryTask_NonSignalled(t *testing.T) {
+func Test_QueryTask_NonSignalled(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	ctx := user.NewContext(context.Background(), alice)
 
 	// Given a task manager with a running task
 	uut := New()
@@ -162,8 +169,33 @@ func TestQueryTask_NonSignalled(t *testing.T) {
 	require.Equal(*status.ExitCode, task.InvalidExitCode)
 }
 
-func TestFetchOutput(t *testing.T) {
-	ctx := context.Background()
+func Test_QueryTask_SomeoneElsesTask(t *testing.T) {
+	require := require.New(t)
+	ctxAlice := user.NewContext(context.Background(), alice)
+	ctxBob := user.NewContext(context.Background(), bob)
+
+	// Given a task manager with a running task started by Alice
+	uut := New()
+	startResponse, err := uut.StartTask(
+		ctxAlice,
+		startTask("exit-with-two"))
+	require.NoError(err)
+	taskID := startResponse.TaskId
+	runningTask := uut.registry.Lookup(taskID.Id)
+	defer killTask(runningTask)
+
+	// When Bob queries the task status
+	status, err := uut.QueryTask(ctxBob, &api.QueryTaskRequest{TaskId: taskID})
+
+	// expect the request to fail with a "access denied" error
+	require.IsType(&AccessDenied{}, err)
+
+	// ...and that we didn't leak anything
+	require.Nil(status)
+}
+
+func Test_FetchOutput(t *testing.T) {
+	ctx := user.NewContext(context.Background(), alice)
 	require := require.New(t)
 
 	// Given a server with a task that has generated data on
@@ -202,8 +234,39 @@ func TestFetchOutput(t *testing.T) {
 	require.FailNow("Expected stream content not found")
 }
 
-func TestFetchOutput_NonExistantTask(t *testing.T) {
-	ctx := context.Background()
+func Test_FetchOutput_SomeoneElsesTask(t *testing.T) {
+	require := require.New(t)
+
+	ctxAlice := user.NewContext(context.Background(), alice)
+	ctxBob := user.NewContext(context.Background(), bob)
+
+	// Given a server with a task started by Alice that has
+	// generated data on stdout and stderr
+	uut := New()
+	startResponse, err := uut.StartTask(
+		ctxAlice,
+		startTask(
+			"sh",
+			"-c",
+			"while true; do echo this is stdout; 1>&2 echo this is stderr; done"))
+	require.NoError(err)
+	defer killTask(uut.registry.Lookup(startResponse.TaskId.Id))
+
+	// When Bob attempts to fetch the output....
+	logResponse, err := uut.FetchLogs(
+		ctxBob,
+		&api.FetchLogsRequest{TaskId: startResponse.TaskId},
+	)
+
+	// expect the request to fail with a "access denied" error
+	require.IsType(&AccessDenied{}, err)
+
+	// ...and that we didn't leak anything
+	require.Nil(logResponse)
+}
+
+func Test_FetchOutput_NonExistantTask(t *testing.T) {
+	ctx := user.NewContext(context.Background(), alice)
 	require := require.New(t)
 
 	// Given a server with no running tasks
@@ -220,9 +283,9 @@ func TestFetchOutput_NonExistantTask(t *testing.T) {
 	require.Nil(logResponse)
 }
 
-func TestSignal(t *testing.T) {
+func Test_Signal(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	ctx := user.NewContext(context.Background(), alice)
 
 	// Given a task that will run forever...
 	uut := New()
@@ -246,9 +309,33 @@ func TestSignal(t *testing.T) {
 	require.NoError(await(task, 1*time.Second))
 }
 
-func TestSignal_NonExistantTask(t *testing.T) {
+func Test_Signal_SomeoneElsesTask(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	ctxAlice := user.NewContext(context.Background(), alice)
+	ctxBob := user.NewContext(context.Background(), bob)
+
+	// Given a task started by Alice that will run forever...
+	uut := New()
+	startResponse, err := uut.StartTask(
+		ctxAlice,
+		startTask(
+			"sh",
+			"-c",
+			"while true; do date; sleep 5; done"))
+	require.NoError(err)
+	taskID := startResponse.TaskId
+	task := uut.registry.Lookup(taskID.Id)
+	defer killTask(task)
+
+	// When Bob attempts to signal the task to quit
+	_, err = uut.SignalTask(ctxBob, &api.SignalTaskRequest{TaskId: taskID})
+
+	// expect the request to fail with a "access denied" error
+	require.IsType(&AccessDenied{}, err)
+}
+func Test_Signal_NonExistantTask(t *testing.T) {
+	require := require.New(t)
+	ctx := user.NewContext(context.Background(), alice)
 
 	// Given an empty task manager
 	uut := New()
@@ -261,9 +348,9 @@ func TestSignal_NonExistantTask(t *testing.T) {
 	require.IsType(&NoSuchTask{}, err)
 }
 
-func TestSignal_AlreadyFinishedTask(t *testing.T) {
+func Test_Signal_AlreadyFinishedTask(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	ctx := user.NewContext(context.Background(), alice)
 
 	// Given a task that has already run and finished
 	uut := New()
@@ -285,9 +372,9 @@ func TestSignal_AlreadyFinishedTask(t *testing.T) {
 	require.NoError(err)
 }
 
-func TestSignal_AlreadySignalledTask(t *testing.T) {
+func Test_Signal_AlreadySignalledTask(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	ctx := user.NewContext(context.Background(), alice)
 	uut := New()
 
 	// Given a server that is managing a task which traps signals...
@@ -325,4 +412,10 @@ func TestSignal_AlreadySignalledTask(t *testing.T) {
 
 	// expect the request to succeed
 	require.NoError(err)
+}
+
+func killTask(t *task.Task) {
+	ctx, cancel := context.WithCancel(context.Background())
+	_ = t.Signal(ctx)
+	cancel()
 }

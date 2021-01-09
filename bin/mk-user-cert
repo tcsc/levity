@@ -1,0 +1,45 @@
+#!/bin/bash
+
+usage () {
+    echo "mk-user-cert --username <username> --output <dst dir> --ca-cert <ca cert path> --openssl <path to openssl>"
+    exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+key="$1"
+
+case $key in
+    -u|--username)
+        LOGIN="$2"
+        shift
+    ;;
+    -o|--output)
+        OUTPUT="$2"
+        shift
+    ;;
+    -c|--ca-cert)
+        CA_CERT="$2"
+        shift
+    ;;
+    -k|--ca-key)
+        CA_KEY="$2"
+        shift
+    ;;
+    --openssl)
+        OPENSSL=$2
+        shift
+    ;;
+    *)    # unknown option
+    usage
+    ;;
+esac
+shift
+done
+
+USR_KEY="$OUTPUT/$LOGIN-key.pem"
+USR_CSR="$OUTPUT/$LOGIN.csr"
+USR_CERT="$OUTPUT/$LOGIN-cert.pem"
+
+$OPENSSL genpkey -algorithm ed25519 -outform PEM -out "$USR_KEY"
+$OPENSSL req -new -key "$USR_KEY" -out "$USR_CSR" -subj "/C=na/ST=na/L=na/O=levity/OU=client/CN=$LOGIN"
+$OPENSSL x509 -req -in "$USR_CSR" -CA "$CA_CERT" -CAkey "$CA_KEY" -CAcreateserial -out "$USR_CERT"

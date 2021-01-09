@@ -29,6 +29,10 @@ func New() *Registry {
 // Lookup attempts to find a task from its ID. Returns nil if no such task
 // exists.
 func (registry *Registry) Lookup(handle string) *task.Task {
+	// TODO: Refactor the interface here to explicitly add an `ok`
+	//       return value (in the style of reading a map[...]...)
+	//       to differentiate a present nil value return vs. a
+	//       not-present-at-all value.
 	registry.lock.RLock()
 	defer registry.lock.RUnlock()
 

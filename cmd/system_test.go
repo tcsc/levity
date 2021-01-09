@@ -68,6 +68,7 @@ func startDaemon() (*daemon, error) {
 		"levityd", "127.0.0.1:0",
 		"--certificate", "../cert/svr-cert.pem",
 		"--key", "../cert/svr-key.pem",
+		"--client-ca", "../cert/client-ca-cert.pem",
 	)
 	cmd.Stdout = os.Stdout
 
@@ -110,24 +111,15 @@ func (d *daemon) addr() string {
 	return fmt.Sprintf("127.0.0.1:%d", d.port)
 }
 
-// Go doesn't seem to offer a nice way to make strongly typed enumerations, but
-// my pathological aversion to non-obvious boolean parameters to functions
-// means that we have to go through the `connectionMode` hoopla.
-
-type connectionMode func(args []string) []string
-
-func secure(args []string) []string {
-	return append(args, "--ca", "../cert/ca-cert.pem")
-}
-
-func insecure(args []string) []string {
-	return append(args, "--insecure")
-}
-
 // runLevity executes the levity client, waiting for it to finish and returning
 // the collected stdout stream.
-func runLevity(connMode connectionMode, addr string, argv ...string) (string, error) {
-	args := connMode([]string{"-a", addr})
+func levity(login string, addr string, argv ...string) (string, error) {
+	args := []string{
+		"-a", addr,
+		"-c", fmt.Sprintf("../cert/%s-cert.pem", login),
+		"-k", fmt.Sprintf("../cert/%s-key.pem", login),
+		"--ca", "../cert/svr-ca-cert.pem",
+	}
 
 	client := exec.Command("levity", append(args, argv...)...)
 	output, err := client.Output()
@@ -139,19 +131,13 @@ func runLevity(connMode connectionMode, addr string, argv ...string) (string, er
 	return strings.TrimSpace(string(output)), nil
 }
 
-// levity executes the levity client command in the default (secure)
-// configuration and returns the command's stdout.
-func levity(addr string, argv ...string) (string, error) {
-	return runLevity(secure, addr, argv...)
-}
-
 // awaitTask waits for a task on the levityd server to finish, failing
 // after a given timeout. Exercises the levity `query` command to monitor
 // the task running on the server.
-func awaitTask(id string, daemon *daemon, timeout time.Duration) error {
+func awaitTask(login string, id string, daemon *daemon, timeout time.Duration) error {
 	t0 := time.Now()
 	for time.Since(t0) < timeout {
-		stdout, err := levity(daemon.addr(), "query", id)
+		stdout, err := levity(login, daemon.addr(), "query", id)
 		if err != nil {
 			return err
 		}
@@ -174,33 +160,34 @@ func Test_System_HappyPath(t *testing.T) {
 	defer daemon.kill()
 
 	// When I start a task on the server that runs forever
-	taskID, err := levity(daemon.addr(), "start", "--",
+	taskID, err := levity("alice", daemon.addr(), "start", "--",
 		"sh", "-c", "i=0; while true; do echo ping $i; i=`expr $i + 1`; sleep 1; done")
 	require.NoError(err)
 
 	// Expect that polling the task returns the "Running" state
-	stdout, err := levity(daemon.addr(), "query", taskID)
+	stdout, err := levity("alice", daemon.addr(), "query", taskID)
 	require.NoError(err)
 	require.Equal("Running", stdout)
 
 	<-time.After(1 * time.Second)
 
 	// When I signal the task to quit
-	_, err = levity(daemon.addr(), "signal", taskID)
+	_, err = levity("alice", daemon.addr(), "signal", taskID)
 	require.NoError(err)
 
 	// Expect that the task will finish within a given time limit
 	t.Log("Waiting for task to finish...")
-	require.NoError(awaitTask(taskID, daemon, 5*time.Second))
+	require.NoError(awaitTask("alice", taskID, daemon, 5*time.Second))
 
 	// And, finally, when I fetch the logs from the server
 	t.Log("Fetching logs")
-	stdout, err = levity(daemon.addr(), "logs", taskID)
+	stdout, err = levity("alice", daemon.addr(), "logs", taskID)
 
 	// Expect that the server has retained and returned the task's data
 	require.NoError(err)
 	require.True(strings.Contains(stdout, "ping 0"))
 }
+
 func Test_Client_ReturnsNonZero_OnNoSuchTask(t *testing.T) {
 	require := require.New(t)
 
@@ -208,14 +195,14 @@ func Test_Client_ReturnsNonZero_OnNoSuchTask(t *testing.T) {
 	require.NoError(err)
 	defer daemon.kill()
 
-	_, err = levity(daemon.addr(), "query", "no-such-task")
+	_, err = levity("alice", daemon.addr(), "query", "no-such-task")
 	require.Error(err)
 	exitErr := err.(*exec.ExitError)
 	require.NotEqual(0, exitErr.ExitCode())
 }
 
 func Test_Client_ReturnsNonZero_OnNoServer(t *testing.T) {
-	_, err := levity("localhost:9999", "start", "ls")
+	_, err := levity("alice", "localhost:9999", "start", "ls")
 	require.Error(t, err)
 	exitErr := err.(*exec.ExitError)
 	require.NotEqual(t, 0, exitErr.ExitCode())
@@ -231,7 +218,8 @@ func Test_Client_ReturnsNonZero_OnInvalidSeverCert(t *testing.T) {
 
 	// When I attempt to contact the server using the IPv6 lopback
 	// address
-	_, err = levity(fmt.Sprintf("[::]:%d", daemon.port), "start", "echo", "hello world")
+	_, err = levity("alice", fmt.Sprintf("[::]:%d", daemon.port),
+		"start", "echo", "hello world")
 
 	// Expect that the request fails and the client's exit code is non 0
 	require.Error(err)
@@ -243,18 +231,40 @@ func Test_Client_ReturnsNonZero_OnInvalidSeverCert(t *testing.T) {
 		string(exitErr.Stderr), "authentication handshake failed")
 }
 
-func Test_Client_ReturnsNonZero_OnInsecureConnection(t *testing.T) {
-	// Given a levity server requiring a secured connection
+func Test_Client_ReturnsNonZero_OnInvalidClientCertificate(t *testing.T) {
+	// Given a running levity server
 	require := require.New(t)
 	daemon, err := startDaemon()
 	require.NoError(err)
 	defer daemon.kill()
 
-	// When I attempt to connect to it using an insecure connection
-	_, err = runLevity(insecure, daemon.addr(), "start", "echo", "hello world")
+	// When I attempt to connect to issue a command with an identity NOT
+	// valid for the server...
+	_, err = levity("chuck", daemon.addr(), "start", "echo", "hello world")
 
 	// Expect that the request fails and the client's exit code is non 0
 	require.Error(err)
 	exitErr := err.(*exec.ExitError)
 	require.NotEqual(0, exitErr.ExitCode())
+}
+
+func Test_Client_ReturnsNonZero_OnObsoleteTLS(t *testing.T) {
+	// Given a running levity server
+	require := require.New(t)
+	daemon, err := startDaemon()
+	require.NoError(err)
+	defer daemon.kill()
+
+	// When I attempt to connect with an obsolete version of TLS in order to
+	// issue a command
+	_, err = levity("alice", daemon.addr(), "--use-obsolete-tls", "start", "echo", "hello world")
+
+	// Expect that the request fails and the client's exit code is non 0
+	require.Error(err)
+	exitErr := err.(*exec.ExitError)
+	require.NotEqual(0, exitErr.ExitCode())
+
+	// ... and that it was the TLS version negotiation that caused the error
+	require.Contains(
+		string(exitErr.Stderr), "protocol version not supported")
 }

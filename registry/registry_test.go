@@ -5,13 +5,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/tcsc/levity/task"
+	"github.com/tcsc/levity/user"
 )
 
 func TestRegisterAndLookup(t *testing.T) {
 	require := require.New(t)
 	uut := New()
 
-	testTask := task.New("cat", ".", nil, "/root/.ssh/id_rsa")
+	testTask := task.New(user.New("alice"), "cat", ".", nil, "/root/.ssh/id_rsa")
 	id := uut.Register(testTask)
 	require.NotEmptyf(string(id), "Task ID must not be empty: \"%v\"", id)
 
